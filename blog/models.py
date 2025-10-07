@@ -1,13 +1,15 @@
 from django.db import models
-from django.db.models import Count
+from django.db.models import Count, Prefetch, OuterRef, Subquery
 from django.urls import reverse
 from django.contrib.auth.models import User
 
 class TagQuerySet(models.QuerySet):
 
+    def fetch_with_posts_count(self):
+        return self.annotate(posts_with_tag=Count('posts'))
+
     def popular(self):
-        tags_popular = self.annotate(posts_count=Count('posts')).order_by('-posts_count')
-        return tags_popular
+        return self.fetch_with_posts_count().order_by('-posts_with_tag')
 
 class PostQuerySet(models.QuerySet):
 
@@ -16,20 +18,21 @@ class PostQuerySet(models.QuerySet):
         return posts_at_year
 
     def popular(self):
-        post_popular = self.annotate(likes_count=Count('likes')).order_by('-likes_count')
-        return post_popular
+        return self.annotate(likes_count=Count('likes')).order_by('-likes_count')
 
     def fetch_with_comments_count(self):
-        most_popular_posts = self
-        most_popular_posts_ids = [post.id for post in most_popular_posts]
-        posts_with_comments = Post.objects.filter(id__in=most_popular_posts_ids).annotate(
-            comments_count=Count('comments'))
-        ids_and_comments = posts_with_comments.values_list('id', 'comments_count')
-        count_for_id = dict(ids_and_comments)
-        for post in most_popular_posts:
-            post.comments_count = count_for_id[post.id]
-        return most_popular_posts
+        """Добавляет к queryset количество комментариев к каждому посту.
+        Используется в случае, если к запросу уже применены другие аннотации.
+        Помогает избежать дублирования данных и ухудшения производительности."""
+        comments_subquery = Post.objects.filter(id=OuterRef('pk')).annotate(
+            comments_count=Count('comments')
+        ).values('comments_count')
+        return self.annotate(comments_count=Subquery(comments_subquery[:1]))
 
+    def tag_prefetch(self):
+        return self.prefetch_related(
+            Prefetch('tags', queryset=Tag.objects.fetch_with_posts_count())
+        )
 
 class Post(models.Model):
     title = models.CharField('Заголовок', max_length=200)
