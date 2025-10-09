@@ -24,10 +24,7 @@ class PostQuerySet(models.QuerySet):
         """Добавляет к queryset количество комментариев к каждому посту.
         Используется в случае, если к запросу уже применены другие аннотации.
         Помогает избежать дублирования данных и ухудшения производительности."""
-        comments_subquery = Post.objects.filter(id=OuterRef('pk')).annotate(
-            comments_count=Count('comments')
-        ).values('comments_count')
-        return self.annotate(comments_count=Subquery(comments_subquery[:1]))
+        return self.annotate(comments_count=Count('comments'))
 
     def tag_prefetch(self):
         return self.prefetch_related(
